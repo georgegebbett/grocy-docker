@@ -1,0 +1,86 @@
+name: publish grocy container images
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build_and_push_latest:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # permit upload of sarif output from the workflow
+    env:
+      GROCY_IMAGE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+    - uses: actions/checkout@v3
+    # Enable Ubuntu (jammy) repository packages, to ensure that a recent version of 'buildah' is available
+    - run: echo "deb http://archive.ubuntu.com/ubuntu/ jammy main universe" | sudo tee -a /etc/apt/sources.list
+    - run: echo "deb http://archive.ubuntu.com/ubuntu/ jammy-security main universe" | sudo tee -a /etc/apt/sources.list
+    - run: sudo apt-get update
+    - run: sudo apt-get install -y buildah qemu-user-static
+    # Determine the grocy application version to bundle based on the image tag to publish
+    - run: echo "GROCY_VERSION=${{ env.GROCY_IMAGE_TAG }}" | sed -e "s/-[0-9a-f]*$//" >> $GITHUB_ENV
+    # Build multi-architecture container manifests
+    - id: build-grocy-backend
+      uses: redhat-actions/buildah-build@v2.12
+      with:
+        image: backend
+        tags: ${{ env.GROCY_IMAGE_TAG }} ${{ env.GROCY_VERSION }}
+        platforms: linux/amd64, linux/arm64/v8
+        containerfiles: Containerfile-backend
+        build-args: |
+          GROCY_VERSION=${{ env.GROCY_VERSION }}
+        labels: |
+          org.opencontainers.image.documentation=https://grocy.info/
+          org.opencontainers.image.source=https://github.com/grocy/grocy-docker/
+          org.opencontainers.image.version=${{ env.GROCY_IMAGE_TAG }}
+          org.opencontainers.image.licenses=MIT
+    - id: build-grocy-frontend
+      uses: redhat-actions/buildah-build@v2.12
+      with:
+        image: frontend
+        tags: ${{ env.GROCY_IMAGE_TAG }} ${{ env.GROCY_VERSION }}
+        platforms: linux/amd64, linux/arm64/v8
+        containerfiles: Containerfile-frontend
+        build-args: |
+          GROCY_VERSION=${{ env.GROCY_VERSION }}
+        labels: |
+          org.opencontainers.image.documentation=https://grocy.info/
+          org.opencontainers.image.source=https://github.com/grocy/grocy-docker/
+          org.opencontainers.image.version=${{ env.GROCY_IMAGE_TAG }}
+          org.opencontainers.image.licenses=MIT
+    # Publish the container manifests
+    - uses: redhat-actions/push-to-registry@v2.7
+      with:
+        image: ${{ steps.build-grocy-backend.outputs.image }}
+        tags: ${{ steps.build-grocy-backend.outputs.tags }}
+        registry: docker.io/grocy
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - uses: redhat-actions/push-to-registry@v2.7
+      with:
+        image: ${{ steps.build-grocy-frontend.outputs.image }}
+        tags: ${{ steps.build-grocy-frontend.outputs.tags }}
+        registry: docker.io/grocy
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    # Perform vulnerability scanning
+    ## Note: please move this to *before* the container publish steps after confirming a way to use anchore/scan-action with locally-built OCI images
+    - id: scan-grocy-backend
+      uses: anchore/scan-action@v3
+      with:
+        image: docker.io/grocy/${{ steps.build-grocy-backend.outputs.image-with-tag }}
+        fail-build: false  # TODO: remove this when scan-action steps are moved to before container publish
+    - uses: github/codeql-action/upload-sarif@v2
+      with:
+        category: scan-grocy-backend
+        sarif_file: ${{ steps.scan-grocy-backend.outputs.sarif }}
+    - id: scan-grocy-frontend
+      uses: anchore/scan-action@v3
+      with:
+        image: docker.io/grocy/${{ steps.build-grocy-frontend.outputs.image-with-tag }}
+        fail-build: false  # TODO: remove this when scan-action steps are moved to before container publish
+    - uses: github/codeql-action/upload-sarif@v2
+      with:
+        category: scan-grocy-frontend
+        sarif_file: ${{ steps.scan-grocy-frontend.outputs.sarif }}

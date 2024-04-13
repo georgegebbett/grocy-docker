@@ -1,11 +1,9 @@
 ARG PLATFORM
 
-FROM --platform=${PLATFORM} docker.io/alpine:3.15.1
+FROM --platform=${PLATFORM} docker.io/alpine:3.19.0
 LABEL maintainer "Talmai Oliveira <to@talm.ai>, James Addison <jay@jp-hosting.net>"
 
 ARG GROCY_VERSION
-ARG COMPOSER_VERSION
-ARG COMPOSER_CHECKSUM
 
 # ensure www-data user exists
 RUN set -eux; \
@@ -18,45 +16,36 @@ RUN set -eux; \
 # Install build-time dependencies
 RUN     apk update && \
         apk add --no-cache \
+            composer \
             git \
             gnupg \
             wget
 
 # Install system dependencies
 RUN     apk add --no-cache \
-            php8 \
-            php8-ctype \
-            php8-fpm \
-            php8-exif \
-            php8-fileinfo \
-            php8-gd \
-            php8-iconv \
-            php8-ldap \
-            php8-pdo_sqlite \
-            php8-simplexml \
-            php8-tokenizer \
-            php8-phar \
-            php8-curl \
-            php8-mbstring \
-            php8-openssl \
-            php8-zip \
-            php8-intl
-
-# Configure PHP8 as the system default (for composer and grocy)
-RUN     ln -s /usr/bin/php8 /usr/bin/php
-
-# Install composer from source instead of using (php7-dependent) Alpine Linux package
-# See: https://gitlab.alpinelinux.org/alpine/aports/-/issues/12308
-RUN     wget https://getcomposer.org/download/${COMPOSER_VERSION}/composer.phar -O /tmp/composer.phar && \
-        echo "${COMPOSER_CHECKSUM}  /tmp/composer.phar" | sha256sum -c - && \
-        mv /tmp/composer.phar /usr/bin/composer && chmod +x /usr/bin/composer
+            php82 \
+            php82-ctype \
+            php82-fpm \
+            php82-exif \
+            php82-fileinfo \
+            php82-gd \
+            php82-iconv \
+            php82-ldap \
+            php82-pdo_sqlite \
+            php82-simplexml \
+            php82-tokenizer \
+            php82-phar \
+            php82-curl \
+            php82-mbstring \
+            php82-openssl \
+            php82-zip \
+            php82-intl
 
 # Configure directory permissions
-RUN     chown www-data /var/log/php8 && \
-        mkdir /var/www && \
+RUN     mkdir /var/www && \
         chown www-data /var/www
 
-COPY docker_backend/www.conf /etc/php8/php-fpm.d/zz-docker.conf
+COPY static/backend/www.conf /etc/php82/php-fpm.d/zz-docker.conf
 
 # Install application dependencies (unprivileged)
 USER www-data
@@ -80,6 +69,7 @@ RUN     composer install --no-interaction --no-dev --optimize-autoloader && \
 # Remove build-time dependencies (privileged)
 USER root
 RUN     apk del \
+            composer \
             git \
             gnupg \
             wget
@@ -90,4 +80,4 @@ EXPOSE 9000
 
 USER www-data
 
-CMD ["php-fpm8"]
+CMD ["php-fpm82"]
